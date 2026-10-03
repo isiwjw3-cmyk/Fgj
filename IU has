@@ -1,0 +1,183 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+----------------------------------------------------
+-- 1. GUI หน้าต่างควบคุม
+----------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local ToggleButton = Instance.new("TextButton")
+local SpeedInput = Instance.new("TextBox")
+local Title = Instance.new("TextLabel")
+
+ScreenGui.Name = "MM2SafeFlyFarm"
+ScreenGui.Parent = game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MainFrame.Position = UDim2.new(0.5, -75, 0.3, -35)
+MainFrame.Size = UDim2.new(0, 160, 0, 90)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+
+Title.Parent = MainFrame
+Title.Size = UDim2.new(1, 0, 0, 24)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.SourceSansBold
+Title.Text = "MM2 SAFE FARM"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 13
+
+SpeedInput.Parent = MainFrame
+SpeedInput.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+SpeedInput.Position = UDim2.new(0.1, 0, 0.32, 0)
+SpeedInput.Size = UDim2.new(0.8, 0, 0.25, 0)
+SpeedInput.Font = Enum.Font.SourceSansBold
+SpeedInput.Text = "25"
+SpeedInput.TextColor3 = Color3.fromRGB(0, 255, 150)
+SpeedInput.TextSize = 13
+Instance.new("UICorner", SpeedInput).CornerRadius = UDim.new(0, 5)
+
+ToggleButton.Parent = MainFrame
+ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+ToggleButton.Position = UDim2.new(0.1, 0, 0.63, 0)
+ToggleButton.Size = UDim2.new(0.8, 0, 0.3, 0)
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.Text = "AutoFarm: OFF"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.TextSize = 13
+Instance.new("UICorner", ToggleButton).CornerRadius = UDim.new(0, 5)
+
+----------------------------------------------------
+-- 2. ตัวแปรและค้นหาเหรียญ
+----------------------------------------------------
+_G.FarmCoins = false
+local farmSpeed = 25
+
+SpeedInput.FocusLost:Connect(function()
+    local val = tonumber(SpeedInput.Text)
+    if val then
+        farmSpeed = math.clamp(val, 1, 36)
+        SpeedInput.Text = tostring(farmSpeed)
+    else
+        SpeedInput.Text = tostring(farmSpeed)
+    end
+end)
+
+local function getTargetCoin()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local closestPart = nil
+    local shortestDist = math.huge
+
+    -- ค้นหาในโฟลเดอร์ของ MM2 โดยเฉพาะ
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and (obj.Name == "Coin" or obj.Name == "CoinServer" or obj.Name == "MainCoin") then
+            if obj.Transparency < 0.9 and obj.Parent then
+                local dist = (hrp.Position - obj.Position).Magnitude
+                if dist < shortestDist then
+                    shortestDist = dist
+                    closestPart = obj
+                end
+            end
+        end
+    end
+
+    return closestPart
+end
+
+----------------------------------------------------
+-- 3. ระบบลอยตัวเพื่อความปลอดภัย (Anti-Gravity)
+----------------------------------------------------
+local function startFarming()
+    task.spawn(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        -- สร้างแรงต้านแรงโน้มถ่วงกันตกแมพ
+        local bv = Instance.new("BodyVelocity")
+        bv.Name = "FarmAntiGravity"
+        bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        bv.Velocity = Vector3.new(0, 0, 0)
+        bv.Parent = hrp
+
+        while _G.FarmCoins do
+            RunService.Heartbeat:Wait()
+
+            char = LocalPlayer.Character
+            hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+
+            if not hrp or not humanoid then continue end
+
+            -- บังคับ NoClip กันชนกำแพง
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = false
+                end
+            end
+
+            local coin = getTargetCoin()
+
+            if coin and coin.Parent then
+                local currentPos = hrp.Position
+                local targetPos = coin.Position
+                local distance = (targetPos - currentPos).Magnitude
+
+                if distance <= 3 then
+                    hrp.CFrame = CFrame.new(targetPos)
+                    if firetouchinterest then
+                        firetouchinterest(hrp, coin, 0)
+                        task.wait(0.01)
+                        firetouchinterest(hrp, coin, 1)
+                    end
+                else
+                    -- คำนวณทิศทางการบิน
+                    local dir = (targetPos - currentPos).Unit
+                    local step = dir * math.min(distance, (farmSpeed * 1.2) * 0.03)
+                    hrp.CFrame = CFrame.new(currentPos + step)
+                end
+            else
+                -- ถ้าหาเหรียญไม่เจอ ให้หยุดนิ่งกลางอากาศ (ไม่ตกแมพ)
+                bv.Velocity = Vector3.new(0, 0, 0)
+                task.wait(0.2)
+            end
+        end
+
+        -- ลบตัวต้านแรงโน้มถ่วงเมื่อปิดสคริปต์
+        if bv then bv:Destroy() end
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.CanCollide = true
+                end
+            end
+        end
+    end)
+end
+
+----------------------------------------------------
+-- 4. ปุ่มเปิด/ปิด
+----------------------------------------------------
+ToggleButton.MouseButton1Click:Connect(function()
+    _G.FarmCoins = not _G.FarmCoins
+
+    if _G.FarmCoins then
+        ToggleButton.Text = "AutoFarm: ON"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        startFarming()
+    else
+        ToggleButton.Text = "AutoFarm: OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+    end
+end)
